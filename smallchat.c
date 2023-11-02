@@ -54,16 +54,18 @@
  * info about it: the socket descriptor and the nick name, if set, otherwise
  * the first byte of the nickname is set to 0 if not set.
  * The client can set its nickname with /nick <nickname> command. */
-struct client {
+struct client
+{
     int fd;     // Client socket.
     char *nick; // Nickname of the client.
 };
 
 /* This global structure encasulates the global state of the chat. */
-struct chatState {
-    int serversock;     // Listening server socket.
-    int numclients;     // Number of connected clients right now.
-    int maxclient;      // The greatest 'clients' slot populated.
+struct chatState
+{
+    int serversock;                      // Listening server socket.
+    int numclients;                      // Number of connected clients right now.
+    int maxclient;                       // The greatest 'clients' slot populated.
     struct client *clients[MAX_CLIENTS]; // Clients are set in the corresponding
                                          // slot of their socket descriptor.
 };
@@ -78,19 +80,29 @@ struct chatState *Chat; // Initialized at startup.
  * =========================================================================== */
 
 /* Create a TCP socket lisetning to 'port' ready to accept connections. */
-int createTCPServer(int port) {
+int createTCPServer(int port)
+{
     int s, yes = 1;
     struct sockaddr_in sa;
 
-    if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1) return -1;
+    // AF_INET means IPv4 addresses, SOCK_STREAM means TCP.
+    if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1)
+        return -1;
+    // SOL_SOCKET means Unix domain sockets.
+    // SO_REUSEADDR 允许重用本地地址和端口。
+    // 在某些情况下，一个socket可能会停留在TIME_WAIT状态，并阻止其他socket绑定到相同的地址和端口。
+    // 设置这个选项可以允许其他socket绑定到相同的地址和端口，即使有一个socket处于TIME_WAIT状态。
     setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)); // Best effort.
 
-    memset(&sa,0,sizeof(sa));
+    memset(&sa, 0, sizeof(sa));
     sa.sin_family = AF_INET;
+    // htons 将主机字节序的端口号转换为网络字节序。
     sa.sin_port = htons(port);
+    // htonl 用于将主机字节序的IP地址转换为网络字节序。
+    // INADDR_ANY 等于 0.0.0.0 表示“任何地址”或“所有地址”。
     sa.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if (bind(s,(struct sockaddr*)&sa,sizeof(sa)) == -1 ||
+    if (bind(s, (struct sockaddr *)&sa, sizeof(sa)) == -1 ||
         listen(s, 511) == -1)
     {
         close(s);
@@ -100,16 +112,21 @@ int createTCPServer(int port) {
 }
 
 /* Set the specified socket in non-blocking mode, with no delay flag. */
-int socketSetNonBlockNoDelay(int fd) {
+int socketSetNonBlockNoDelay(int fd)
+{
     int flags, yes = 1;
 
     /* Set the socket nonblocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
-    if ((flags = fcntl(fd, F_GETFL)) == -1) return -1;
-    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) return -1;
+    // F_GETFL Return (as the function result) the file access mode and the file status flags
+    if ((flags = fcntl(fd, F_GETFL)) == -1)
+        return -1;
+    if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1)
+        return -1;
 
     /* This is best-effort. No need to check for errors. */
+    // 禁用Nagle算法
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes));
     return 0;
 }
@@ -117,14 +134,18 @@ int socketSetNonBlockNoDelay(int fd) {
 /* If the listening socket signaled there is a new connection ready to
  * be accepted, we accept(2) it and return -1 on error or the new client
  * socket on success. */
-int acceptClient(int server_socket) {
+int acceptClient(int server_socket)
+{
     int s;
 
-    while(1) {
+    while (1)
+    {
         struct sockaddr_in sa;
         socklen_t slen = sizeof(sa);
-        s = accept(server_socket,(struct sockaddr*)&sa,&slen);
-        if (s == -1) {
+        s = accept(server_socket, (struct sockaddr *)&sa, &slen);
+        if (s == -1)
+        {
+            // accept 被信号中断，则重试系统调用
             if (errno == EINTR)
                 continue; /* Try again. */
             else
@@ -139,9 +160,11 @@ int acceptClient(int server_socket) {
  * will discover that in most programs designed to run for a long time, that
  * are not libraries, trying to recover from out of memory is often futile
  * and at the same time makes the whole program terrible. */
-void *chatMalloc(size_t size) {
+void *chatMalloc(size_t size)
+{
     void *ptr = malloc(size);
-    if (ptr == NULL) {
+    if (ptr == NULL)
+    {
         perror("Out of memory");
         exit(1);
     }
@@ -149,9 +172,11 @@ void *chatMalloc(size_t size) {
 }
 
 /* Also aborting realloc(). */
-void *chatRealloc(void *ptr, size_t size) {
-    ptr = realloc(ptr,size);
-    if (ptr == NULL) {
+void *chatRealloc(void *ptr, size_t size)
+{
+    ptr = realloc(ptr, size);
+    if (ptr == NULL)
+    {
         perror("Out of memory");
         exit(1);
     }
@@ -167,46 +192,54 @@ void *chatRealloc(void *ptr, size_t size) {
 
 /* Create a new client bound to 'fd'. This is called when a new client
  * connects. As a side effect updates the global Chat state. */
-struct client *createClient(int fd) {
+struct client *createClient(int fd)
+{
     char nick[32]; // Used to create an initial nick for the user.
-    int nicklen = snprintf(nick,sizeof(nick),"user:%d",fd);
+    int nicklen = snprintf(nick, sizeof(nick), "user:%d", fd);
     struct client *c = chatMalloc(sizeof(*c));
     socketSetNonBlockNoDelay(fd); // Pretend this will not fail.
     c->fd = fd;
-    c->nick = chatMalloc(nicklen+1);
-    memcpy(c->nick,nick,nicklen);
+    c->nick = chatMalloc(nicklen + 1);
+    memcpy(c->nick, nick, nicklen);
     assert(Chat->clients[c->fd] == NULL); // This should be available.
     Chat->clients[c->fd] = c;
     /* We need to update the max client set if needed. */
-    if (c->fd > Chat->maxclient) Chat->maxclient = c->fd;
+    if (c->fd > Chat->maxclient)
+        Chat->maxclient = c->fd;
     Chat->numclients++;
     return c;
 }
 
 /* Free a client, associated resources, and unbind it from the global
  * state in Chat. */
-void freeClient(struct client *c) {
+void freeClient(struct client *c)
+{
     free(c->nick);
     close(c->fd);
     Chat->clients[c->fd] = NULL;
     Chat->numclients--;
-    if (Chat->maxclient == c->fd) {
+    if (Chat->maxclient == c->fd)
+    {
         /* Ooops, this was the max client set. Let's find what is
          * the new highest slot used. */
         int j;
-        for (j = Chat->maxclient-1; j >= 0; j--) {
-            if (Chat->clients[j] != NULL) Chat->maxclient = j;
+        for (j = Chat->maxclient - 1; j >= 0; j--)
+        {
+            if (Chat->clients[j] != NULL)
+                Chat->maxclient = j;
             break;
         }
-        if (j == -1) Chat->maxclient = -1; // We no longer have clients.
+        if (j == -1)
+            Chat->maxclient = -1; // We no longer have clients.
     }
     free(c);
 }
 
 /* Allocate and init the global stuff. */
-void initChat(void) {
+void initChat(void)
+{
     Chat = chatMalloc(sizeof(*Chat));
-    memset(Chat,0,sizeof(*Chat));
+    memset(Chat, 0, sizeof(*Chat));
     /* No clients at startup, of course. */
     Chat->maxclient = -1;
     Chat->numclients = 0;
@@ -214,7 +247,8 @@ void initChat(void) {
     /* Create our listening socket, bound to the given port. This
      * is where our clients will connect. */
     Chat->serversock = createTCPServer(SERVER_PORT);
-    if (Chat->serversock == -1) {
+    if (Chat->serversock == -1)
+    {
         perror("Creating listening socket");
         exit(1);
     }
@@ -223,15 +257,18 @@ void initChat(void) {
 /* Send the specified string to all connected clients but the one
  * having as socket descriptor 'excluded'. If you want to send something
  * to every client just set excluded to an impossible socket: -1. */
-void sendMsgToAllClientsBut(int excluded, char *s, size_t len) {
-    for (int j = 0; j <= Chat->maxclient; j++) {
+void sendMsgToAllClientsBut(int excluded, char *s, size_t len)
+{
+    for (int j = 0; j <= Chat->maxclient; j++)
+    {
         if (Chat->clients[j] == NULL ||
-            Chat->clients[j]->fd == excluded) continue;
+            Chat->clients[j]->fd == excluded)
+            continue;
 
         /* Important: we don't do ANY BUFFERING. We just use the kernel
          * socket buffers. If the content does not fit, we don't care.
          * This is needed in order to keep this program simple. */
-        write(Chat->clients[j]->fd,s,len);
+        write(Chat->clients[j]->fd, s, len);
     }
 }
 
@@ -239,10 +276,14 @@ void sendMsgToAllClientsBut(int excluded, char *s, size_t len) {
  * 1. Accept new clients connections if any.
  * 2. Check if any client sent us some new message.
  * 3. Send the message to all the other clients. */
-int main(void) {
+int main(void)
+{
     initChat();
+    // stdin fd是0
+    int stdinfd = 0;
 
-    while(1) {
+    while (1)
+    {
         fd_set readfds;
         struct timeval tv;
         int retval;
@@ -253,8 +294,12 @@ int main(void) {
          * or if any other client wrote anything. */
         FD_SET(Chat->serversock, &readfds);
 
-        for (int j = 0; j <= Chat->maxclient; j++) {
-            if (Chat->clients[j]) FD_SET(j, &readfds);
+        FD_SET(stdinfd, &readfds);
+
+        for (int j = 0; j <= Chat->maxclient; j++)
+        {
+            if (Chat->clients[j])
+                FD_SET(j, &readfds);
         }
 
         /* Set a timeout for select(), see later why this may be useful
@@ -266,46 +311,72 @@ int main(void) {
          * in use plus one. It can be either one of our clients or the
          * server socket itself. */
         int maxfd = Chat->maxclient;
-        if (maxfd < Chat->serversock) maxfd = Chat->serversock;
-        retval = select(maxfd+1, &readfds, NULL, NULL, &tv);
-        if (retval == -1) {
+        if (maxfd < Chat->serversock)
+            maxfd = Chat->serversock;
+        retval = select(maxfd + 1, &readfds, NULL, NULL, &tv);
+        if (retval == -1)
+        {
             perror("select() error");
             exit(1);
-        } else if (retval) {
-
+        }
+        else if (retval)
+        {
             /* If the listening socket is "readable", it actually means
              * there are new clients connections pending to accept. */
-            if (FD_ISSET(Chat->serversock, &readfds)) {
+            if (FD_ISSET(Chat->serversock, &readfds))
+            {
                 int fd = acceptClient(Chat->serversock);
                 struct client *c = createClient(fd);
                 /* Send a welcome message. */
                 char *welcome_msg =
                     "Welcome to Simple Chat! "
                     "Use /nick <nick> to set your nick.\n";
-                write(c->fd,welcome_msg,strlen(welcome_msg));
+                write(c->fd, welcome_msg, strlen(welcome_msg));
                 printf("Connected client fd=%d\n", fd);
             }
 
             /* Here for each connected client, check if there are pending
              * data the client sent us. */
             char readbuf[256];
-            for (int j = 0; j <= Chat->maxclient; j++) {
-                if (Chat->clients[j] == NULL) continue;
-                if (FD_ISSET(j, &readfds)) {
+
+            // 如果服务端有新消息，就把它发送给所有客户端
+            if (FD_ISSET(stdinfd, &readfds))
+            {
+                int nread = read(stdinfd, readbuf, sizeof(readbuf) - 1);
+                if (nread > 0)
+                {
+                    readbuf[nread] = 0;
+                    char msg[256];
+                    int msglen = snprintf(msg, sizeof(msg),
+                                          "server> %s", readbuf);
+                    /* Send it to all the other clients. */
+                    sendMsgToAllClientsBut(stdinfd, msg, msglen);
+                }
+            }
+
+            for (int j = 0; j <= Chat->maxclient; j++)
+            {
+                if (Chat->clients[j] == NULL)
+                    continue;
+                if (FD_ISSET(j, &readfds))
+                {
                     /* Here we just hope that there is a well formed
                      * message waiting for us. But it is entirely possible
                      * that we read just half a message. In a normal program
                      * that is not designed to be that simple, we should try
                      * to buffer reads until the end-of-the-line is reached. */
-                    int nread = read(j,readbuf,sizeof(readbuf)-1);
+                    int nread = read(j, readbuf, sizeof(readbuf) - 1);
 
-                    if (nread <= 0) {
+                    if (nread <= 0)
+                    {
                         /* Error or short read means that the socket
                          * was closed. */
                         printf("Disconnected client fd=%d, nick=%s\n",
-                            j, Chat->clients[j]->nick);
+                               j, Chat->clients[j]->nick);
                         freeClient(Chat->clients[j]);
-                    } else {
+                    }
+                    else
+                    {
                         /* The client sent us a message. We need to
                          * relay this message to all the other clients
                          * in the chat. */
@@ -315,45 +386,60 @@ int main(void) {
                         /* If the user message starts with "/", we
                          * process it as a client command. So far
                          * only the /nick <newnick> command is implemented. */
-                        if (readbuf[0] == '/') {
+                        if (readbuf[0] == '/')
+                        {
                             /* Remove any trailing newline. */
+                            // 这里是去除尾部的换行符
                             char *p;
-                            p = strchr(readbuf,'\r'); if (p) *p = 0;
-                            p = strchr(readbuf,'\n'); if (p) *p = 0;
+                            p = strchr(readbuf, '\r');
+                            if (p)
+                                *p = 0;
+                            p = strchr(readbuf, '\n');
+                            if (p)
+                                *p = 0;
                             /* Check for an argument of the command, after
                              * the space. */
-                            char *arg = strchr(readbuf,' ');
-                            if (arg) {
+                            char *arg = strchr(readbuf, ' ');
+                            if (arg)
+                            {
                                 *arg = 0; /* Terminate command name. */
-                                arg++; /* Argument is 1 byte after the space. */
+                                arg++;    /* Argument is 1 byte after the space. */
                             }
 
-                            if (!strcmp(readbuf,"/nick") && arg) {
+                            if (!strcmp(readbuf, "/nick") && arg)
+                            {
                                 free(c->nick);
                                 int nicklen = strlen(arg);
-                                c->nick = chatMalloc(nicklen+1);
-                                memcpy(c->nick,arg,nicklen+1);
-                            } else {
+                                // 这里要包括字符串尾部的\0，所以得加一
+                                c->nick = chatMalloc(nicklen + 1);
+                                memcpy(c->nick, arg, nicklen + 1);
+                            }
+                            else
+                            {
                                 /* Unsupported command. Send an error. */
                                 char *errmsg = "Unsupported command\n";
-                                write(c->fd,errmsg,strlen(errmsg));
+                                write(c->fd, errmsg, strlen(errmsg));
                             }
-                        } else {
+                        }
+                        else
+                        {
                             /* Create a message to send everybody (and show
                              * on the server console) in the form:
                              *   nick> some message. */
                             char msg[256];
                             int msglen = snprintf(msg, sizeof(msg),
-                                "%s> %s", c->nick, readbuf);
-                            printf("%s",msg);
+                                                  "%s> %s", c->nick, readbuf);
+                            printf("%s", msg);
 
                             /* Send it to all the other clients. */
-                            sendMsgToAllClientsBut(j,msg,msglen);
+                            sendMsgToAllClientsBut(j, msg, msglen);
                         }
                     }
                 }
             }
-        } else {
+        }
+        else
+        {
             /* Timeout occurred. We don't do anything right now, but in
              * general this section can be used to wakeup periodically
              * even if there is no clients activity. */
